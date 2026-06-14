@@ -1,117 +1,223 @@
-# StellarMarket
+# StellarMarket Contracts
 
-A decentralized freelance marketplace built on **Stellar/Soroban**, enabling trustless work agreements with escrow payments, on-chain reputation, and decentralized dispute resolution.
+This directory contains Soroban smart contracts for:
 
-## Overview
+- `escrow` (`stellar-market-escrow`)
+- `reputation` (`stellar-market-reputation`)
+- `dispute` (`stellar-market-dispute`)
+- `integration-tests` (`stellar-market-integration-tests`)
 
-StellarMarket connects freelancers and clients through a transparent, blockchain-powered platform. Smart contracts handle payment escrow, milestone tracking, and dispute arbitration — eliminating the need for centralized intermediaries.
+## Prerequisites
 
-## Architecture
+- Rust toolchain (stable)
+- wasm target:
+  - `rustup target add wasm32-unknown-unknown`
+- Stellar CLI installed and configured
+- A funded testnet account identity in Stellar CLI
 
-```
-stellar-market/
-├── frontend/       # Next.js marketplace UI
-├── backend/        # Express.js API server
-├── contracts/      # Soroban smart contracts (Rust)
-│   ├── escrow/     # Job escrow & milestone payments
-│   ├── reputation/ # On-chain reputation & staking
-│   └── dispute/    # Dispute arbitration system
-└── docs/           # Documentation
-```
+## Project Map
 
-## Tech Stack
+- `escrow/` - Escrow and milestone payment contract
+- `reputation/` - Reputation and stake-weighted reviews
+- `dispute/` - Dispute voting and resolution
+- `integration-tests/` - Cross-contract integration tests
+- `scripts/` - Deployment scripts
 
-| Layer               | Technology                                        |
-| ------------------- | ------------------------------------------------- |
-| **Frontend**        | Next.js 14, TypeScript, Tailwind CSS, Stellar SDK |
-| **Backend**         | Express.js, TypeScript, PostgreSQL, Prisma ORM    |
-| **Smart Contracts** | Soroban SDK, Rust                                 |
-| **Blockchain**      | Stellar Network (Soroban)                         |
+## Build
 
-## Features
-
-- **Job Marketplace** — Post, browse, and apply for freelance jobs
-- **Escrow Payments** — Funds locked in smart contracts, released on milestone completion
-- **Milestone Tracking** — Break jobs into milestones with individual escrow releases
-- **On-Chain Reputation** — Rating system backed by stake-weighted reviews
-- **Dispute Resolution** — Decentralized arbitration with voter panels
-- **Messaging** — In-app communication between clients and freelancers
-- **Multi-Token Support** — Pay in XLM or any Stellar asset
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js >= 18
-- Rust & Cargo
-- Soroban CLI
-- PostgreSQL
-
-### Installation
+From `contracts/`:
 
 ```bash
-# Clone the repository
-git clone https://github.com/stellarmarket-labs/stellar-market.git
-cd stellar-market
+# Build all contracts for wasm
+cargo build --release --target wasm32-unknown-unknown
 
-# Install frontend dependencies
-cd frontend && npm install
-
-# Install backend dependencies
-cd ../backend && npm install
-
-# Build smart contracts
-cd ../contracts/escrow && cargo build --release --target wasm32-unknown-unknown
+# Build individual contracts
+cargo build --release --target wasm32-unknown-unknown -p stellar-market-escrow
+cargo build --release --target wasm32-unknown-unknown -p stellar-market-reputation
+cargo build --release --target wasm32-unknown-unknown -p stellar-market-dispute
 ```
 
-### Development
+## Test
+
+From `contracts/`:
 
 ```bash
-# Start backend server
-cd backend && npm run dev
+# All tests in workspace
+cargo test
 
-# Start frontend dev server
-cd frontend && npm run dev
+# Per-contract tests
+cargo test -p stellar-market-escrow
+cargo test -p stellar-market-reputation
+cargo test -p stellar-market-dispute
+
+# Integration tests
+cargo test -p stellar-market-integration-tests
 ```
 
-### Post-Deploy Verification
+See detailed integration test notes in `contracts/integration-tests/README.md`.
 
-After applying backend migrations, verify persisted user review aggregates with:
+## Environment Setup
+
+Create a local env file:
 
 ```bash
-cd backend && npm run prisma:verify-review-aggregates
+cp contracts/.env.example contracts/.env
 ```
 
-The query returns only mismatches between stored `User.averageRating` / `User.reviewCount`
-and values recomputed from the `Review` table. The command prints `No review aggregate
-mismatches found.` when everything is consistent; otherwise it prints the mismatched users
-and exits non-zero.
+Required variables:
 
-## API Rate Limiting
+- `STELLAR_NETWORK` - network name configured in Stellar CLI (for example `testnet`)
+- `SOURCE_ACCOUNT` - CLI identity/account used for deployments and invokes
+- `TOKEN_ADDRESS` - token contract address used in escrow/reputation flows
 
-The API enforces rate limits to prevent abuse and ensure fair usage:
+## Deploy Contracts
 
-| Endpoint | Limit | Window | Key |
-|----------|-------|--------|-----|
-| `/api/*` (global) | 200 requests | 15 minutes | IP address |
-| `/api/auth/*` | 10 requests | 15 minutes | IP address |
-| `POST /api/jobs` | 30 requests | 1 hour | User ID (fallback: IP) |
-| `POST /api/reviews` | 30 requests | 1 hour | User ID (fallback: IP) |
-| `POST /api/disputes` | 30 requests | 1 hour | User ID (fallback: IP) |
-| `/api/auth/forgot-password` | 3 requests | 1 hour | IP address |
+Do not run these scripts unless you intend to deploy.
 
-When a limit is exceeded, the API returns `429 Too Many Requests` with a `Retry-After` header indicating seconds until the limit resets.
+```bash
+bash contracts/scripts/deploy_escrow.sh
+bash contracts/scripts/deploy_reputation.sh
+bash contracts/scripts/deploy_dispute.sh
+```
 
-## Contributing
+Each script:
 
-We welcome contributions! Please see our [Contributing Guide](docs/CONTRIBUTING.md) for details.
+1. Loads env from `contracts/.env` (if present)
+2. Validates required variables
+3. Builds the target wasm
+4. Runs `stellar contract deploy`
+5. Prints deployed contract ID
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+After deployment, record IDs in `contracts/ADDRESSES.md`.
 
-## License
+## Invoke Examples (Testnet)
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+Replace placeholders like `<ESCROW_CONTRACT_ID>` before running.
+
+### Escrow
+
+```bash
+# create_job(client, freelancer, token, milestones, job_deadline, auto_refund_after)
+stellar contract invoke \
+  --id <ESCROW_CONTRACT_ID> \
+  --source-account "$SOURCE_ACCOUNT" \
+  --network "$STELLAR_NETWORK" \
+  -- \
+  create_job \
+  --client <CLIENT_ADDRESS> \
+  --freelancer <FREELANCER_ADDRESS> \
+  --token "$TOKEN_ADDRESS" \
+  --milestones '[["Design",10000000,1735689600],["Build",20000000,1736294400]]' \
+  --job_deadline 1736899200 \
+  --auto_refund_after 1737504000
+
+# get_job(job_id)
+stellar contract invoke \
+  --id <ESCROW_CONTRACT_ID> \
+  --source-account "$SOURCE_ACCOUNT" \
+  --network "$STELLAR_NETWORK" \
+  -- \
+  get_job \
+  --job_id 1
+```
+
+### Reputation
+
+```bash
+# initialize(admin, decay_rate)
+stellar contract invoke \
+  --id <REPUTATION_CONTRACT_ID> \
+  --source-account "$SOURCE_ACCOUNT" \
+  --network "$STELLAR_NETWORK" \
+  -- \
+  initialize \
+  --admin <ADMIN_ADDRESS> \
+  --decay_rate 5
+
+# submit_review(escrow_contract_id, reviewer, reviewee, job_id, rating, comment, stake_weight)
+stellar contract invoke \
+  --id <REPUTATION_CONTRACT_ID> \
+  --source-account "$SOURCE_ACCOUNT" \
+  --network "$STELLAR_NETWORK" \
+  -- \
+  submit_review \
+  --escrow_contract_id <ESCROW_CONTRACT_ID> \
+  --reviewer <REVIEWER_ADDRESS> \
+  --reviewee <REVIEWEE_ADDRESS> \
+  --job_id 1 \
+  --rating 5 \
+  --comment "great work" \
+  --stake_weight 10000000
+
+# get_average_rating(user)
+stellar contract invoke \
+  --id <REPUTATION_CONTRACT_ID> \
+  --source-account "$SOURCE_ACCOUNT" \
+  --network "$STELLAR_NETWORK" \
+  -- \
+  get_average_rating \
+  --user <USER_ADDRESS>
+```
+
+### Dispute
+
+```bash
+# initialize(admin, reputation_contract, min_voter_reputation, escrow_contract)
+stellar contract invoke \
+  --id <DISPUTE_CONTRACT_ID> \
+  --source-account "$SOURCE_ACCOUNT" \
+  --network "$STELLAR_NETWORK" \
+  -- \
+  initialize \
+  --admin <ADMIN_ADDRESS> \
+  --reputation_contract <REPUTATION_CONTRACT_ID> \
+  --min_voter_reputation 300 \
+  --escrow_contract <ESCROW_CONTRACT_ID>
+
+# raise_dispute(job_id, client, freelancer, initiator, reason, min_votes, tie_break_method)
+stellar contract invoke \
+  --id <DISPUTE_CONTRACT_ID> \
+  --source-account "$SOURCE_ACCOUNT" \
+  --network "$STELLAR_NETWORK" \
+  -- \
+  raise_dispute \
+  --job_id 1 \
+  --client <CLIENT_ADDRESS> \
+  --freelancer <FREELANCER_ADDRESS> \
+  --initiator <INITIATOR_ADDRESS> \
+  --reason "milestone quality issue" \
+  --min_votes 3 \
+  --tie_break_method "Escalate"
+
+# cast_vote(dispute_id, voter, choice, reason)
+stellar contract invoke \
+  --id <DISPUTE_CONTRACT_ID> \
+  --source-account "$SOURCE_ACCOUNT" \
+  --network "$STELLAR_NETWORK" \
+  -- \
+  cast_vote \
+  --dispute_id 1 \
+  --voter <VOTER_ADDRESS> \
+  --choice "Freelancer" \
+  --reason "evidence supports delivery"
+
+# resolve_dispute(dispute_id)
+stellar contract invoke \
+  --id <DISPUTE_CONTRACT_ID> \
+  --source-account "$SOURCE_ACCOUNT" \
+  --network "$STELLAR_NETWORK" \
+  -- \
+  resolve_dispute \
+  --dispute_id 1
+```
+
+## Troubleshooting
+
+- wasm target missing:
+  - `rustup target add wasm32-unknown-unknown`
+- missing env variables:
+  - ensure `contracts/.env` exists and includes all required keys
+- unknown network/account:
+  - verify Stellar CLI network and identity config
+- missing deployed IDs:
+  - update `contracts/ADDRESSES.md` after deployments
