@@ -1,0 +1,1 @@
+export default function Home() { return <main><h1>Stella Market</h1></main>; }
